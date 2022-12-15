@@ -1,0 +1,308 @@
+---
+title: "Projeto Integrador"
+output:
+  html_document: default
+date: "2022-11-23"
+---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+# Carregando Pacotes
+
+```{r Carregando-Pacotes}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+
+library(rpart)      # Arvore
+library(rpart.plot) # Arvore
+library(partykit)   # Arvore
+library(skimr)      # descritiva dos dados
+library(glmnet)     # LASSO e ridge
+library(plotmo)     # gra¡ficos para LASSO e Ridge
+library(naniar)     # biblioteca para visualizar missing
+library(rsample)    # separar em treinamento e teste
+library(pROC)       # curva ROC
+library(tidyverse)
+library(dplyr)
+library(modeldata)
+library(ranger)
+library(rsample)
+library(ISLR)
+library(patchwork)
+library(vip)
+library(tidyverse)
+library(ROCR)
+set.seed(123)
+
+df <- read_csv("C:/Users/Rodrigo/Desktop/Pós Insper/Projeto Integrador/Definitiva/Projeto_v2.csv")
+
+df<- df %>% mutate(Faliu = as.factor(Faliu),
+                   balsheet_notfullyear = as.factor(balsheet_notfullyear),
+                   gender= as.factor(gender),
+                   origin = as.factor(origin),
+                   nace_main = as.factor(nace_main),
+                   balsheet_notfullyear = as.factor(balsheet_notfullyear),
+                   origin = as.factor(origin),
+                   ind2 = as.factor(ind2),
+                   ind = as.factor(ind),
+                   urban_m = as.factor(urban_m),
+                   region_m = as.factor(region_m))
+df %>% glimpse()
+```
+
+# Teste e Treino
+```{r Teste e Treino}
+
+x = model.matrix(Faliu ~ ., data=df)[,-1]
+y = df$Faliu
+
+idx = sample(nrow(df),size=.75*nrow(df))
+
+treino <- data.frame(x[idx,],Faliu = y[idx])
+
+
+test <- data.frame(x[-idx,],Faliu = y[-idx])
+
+Faliu_df = data.frame(test$Faliu)
+colnames(Faliu_df) <- "Faliu_real"
+
+
+```
+
+# Regressao Logistica
+```{r Regressao-Logistica}
+
+fit <- glm(Faliu ~ ., data = treino, family = "binomial")
+  prob_log <- predict(fit, test, type = "response")
+  treino %>% count(Faliu)
+  test %>% count(Faliu)
+  
+(roc_logistica <- roc(test$Faliu, prob_log))
+best_logistica <-   coords(roc_logistica,'best',
+         ret = c("threshold", "accuracy", "specificity", "sensitivity", "npv", "ppv"))
+  
+best_logistica=best_logistica[1]
+
+Faliu_df <- Faliu_df %>% 
+  mutate(Faliu_log = if_else(prob_log >= as.numeric(best_logistica), 1, 0))
+
+table(observado=Faliu_df$Faliu_real,
+      predito=Faliu_df$Faliu_log)
+
+
+
+```
+
+# IMPORTANCIA DAS VARIAVEIS NA REGRESSAO
+```{r IMPORTANCIA DAS VARIAVEIS NA REGRESSAO}
+g1 =  vip(fit,mapping= aes (fill= Sign),num_features = 40L) + labs( tittle = 'RegressÃ£o logistica')
+
+g1
+
+
+```
+
+
+# Regressao ridge
+
+```{r Regressao-ridge}
+
+
+ridge =  glmnet(x[idx,],y[idx], alpha =0, nlambda = 500, family ="binomial")
+
+cv_ridge = cv.glmnet(x[idx,],y[idx],alpha=0, family ="binomial")
+y_ridge = predict(ridge,newx = x[-idx,], s = cv_ridge$lambda.1se, type = "response")
+
+(roc_ridge <- roc(test$Faliu, y_ridge))
+best_ridge <-   coords(roc_ridge,'best',
+                           ret = c("threshold", "accuracy", "specificity", "sensitivity", "npv", "ppv"))
+best_ridge
+best_ridge=best_ridge[1]
+
+Faliu_df <- Faliu_df %>% 
+  mutate(Faliu_ridge = if_else(y_ridge >= as.numeric(best_ridge), 1, 0))
+
+table(observado=Faliu_df$Faliu_real,
+      predito=Faliu_df$Faliu_ridge)
+
+```
+
+# Regressao LASSO
+
+```{r Regressao-LASSO}
+
+lasso =  glmnet(x[idx,],y[idx], alpha =1, nlambda = 500, family ="binomial")
+
+cv_lasso = cv.glmnet(x[idx,],y[idx],alpha=1, family ="binomial")
+y_lasso = predict(lasso,newx = x[-idx,], s = cv_lasso$lambda.1se, type = "response")
+
+(roc_lasso <- roc(test$Faliu, y_lasso))
+best_lasso <-   coords(roc_lasso,'best',
+                       ret = c("threshold", "accuracy", "specificity", "sensitivity", "npv", "ppv"))
+best_lasso
+best_lasso=best_lasso[1]
+
+Faliu_df <- Faliu_df %>% 
+  mutate(Faliu_lasso = if_else(y_lasso >= as.numeric(best_lasso), 1, 0))
+
+table(observado=Faliu_df$Faliu_real,
+      predito=Faliu_df$Faliu_lasso)
+
+
+```
+
+# Regressao-Elastic-NET
+```{r Regressao-Elastic-NET}
+
+elastic =  glmnet(x[idx,],y[idx], alpha =0.5, nlambda = 500, family ="binomial")
+
+cv_elastic = cv.glmnet(x[idx,],y[idx],alpha=0.5, family ="binomial")
+y_elastic = predict(elastic,newx = x[-idx,], s = cv_elastic$lambda.1se, type = "response")
+
+(roc_elastic <- roc(test$Faliu, y_elastic))
+best_elastic <-   coords(roc_elastic,'best',
+                       ret = c("threshold", "accuracy", "specificity", "sensitivity", "npv", "ppv"))
+best_elastic
+best_elastic=best_elastic[1]
+
+Faliu_df <- Faliu_df %>% 
+  mutate(Faliu_elastic = if_else(y_elastic >= as.numeric(best_elastic), 1, 0))
+
+table(observado=Faliu_df$Faliu_real,
+      predito=Faliu_df$Faliu_elastic)
+
+```
+
+# Arvore de Decisao
+
+```{r ArvoredeDecisao}
+ 
+arvore <- rpart(Faliu ~ ., data = treino,  control = rpart.control(cp = 0))
+
+
+cp_ot <- arvore$cptable[which.min(arvore$cptable[,"xerror"]),"CP"]
+
+cp_ot <- arvore$cptable %>%
+  as_tibble() %>%
+  filter(xerror == min(xerror))
+
+poda1 <- prune(arvore, cp = cp_ot$CP[1])
+
+
+rpart.plot(poda1, roundint = FALSE)
+
+vip::vip(poda1, aesthetics = list(fill = "darkblue")) +
+  theme_bw()
+
+
+arvore_pred = predict(poda1, newdata = test)[,2]
+
+
+(roc_arvore <- roc(test$Faliu, arvore_pred))
+best_arvore <-   coords(roc_arvore,'best',
+                       ret = c("threshold", "accuracy", "specificity", "sensitivity", "npv", "ppv"))
+best_arvore
+best_arvore=best_arvore[1]
+
+Faliu_df <- Faliu_df %>% 
+  mutate(Faliu_arvore = if_else(arvore_pred >= as.numeric(best_arvore), 1, 0))
+
+table(observado=Faliu_df$Faliu_real,
+      predito=Faliu_df$Faliu_arvore)
+
+```
+
+# Floresta Aleatoria
+
+```{r Floresta}
+
+rf <- ranger(Faliu ~ ., probability = TRUE, data = treino)
+
+ 
+
+resultados <- crossing(mtry = c(4, 8, 15, 19),
+                       n_arvores = c(1, 5, 10, seq(25, 200, 25)))
+
+ 
+
+
+ajusta <- function(mtry, n_arvores) {
+  rf <- ranger(Faliu ~ ., num.trees = n_arvores, mtry = mtry, data = treino)
+  return(rf$prediction.error)
+}
+
+ 
+
+
+resultados <- resultados %>%
+  mutate(erro = map2_dbl(mtry, n_arvores, ajusta))
+
+ 
+
+
+prob_Faliu <- predict(rf, test, type = "response")$predictions[,2]
+table(observado = test$Faliu, predito = ifelse(prob_Faliu >= .5, 1, 0))
+
+ 
+
+
+resultados %>%  
+  mutate(mtry = factor(mtry)) %>%
+  ggplot(aes(n_arvores, erro, group = mtry, color = mtry)) +
+  geom_line() +
+  labs(x = "Número de Árvores", y = "MSE (OOB)") +
+  theme_bw()
+
+ 
+
+
+prob_floresta <- predict(rf, test, type = "response")$predictions[,2]
+
+ 
+
+roc_floresta <- roc(test$Faliu, prob_floresta)
+
+ 
+
+best_floresta <- coords(roc_floresta,'best',
+                         ret = c("threshold", "accuracy", "specificity", "sensitivity", "npv", "ppv"))
+best_floresta
+best_floresta=best_floresta[1]
+
+ 
+
+Faliu_df <- Faliu_df %>% 
+  mutate(Faliu_floresta = if_else(prob_floresta >= as.numeric(best_floresta), 1, 0))
+
+ 
+
+table(observado=Faliu_df$Faliu_real,
+      predito=Faliu_df$Faliu_floresta)
+
+ 
+
+
+tibble(modelo = "árvore", 
+       probabilidade = Faliu_df$arvore, 
+       classe = test$Faliu) %>% 
+  bind_rows(tibble(modelo = "floresta aleatória",
+                   probabilidade = Faliu_df$Faliu_floresta,
+                   classe = test$Faliu)) %>% 
+  bind_rows(tibble(modelo = "Regressao Logistica",
+                   probabilidade = Faliu_df$Faliu_log,
+                   classe = test$Faliu)) %>% 
+  bind_rows(tibble(modelo = "Lasso",
+                   probabilidade = Faliu_df$Faliu_lasso,
+                   classe = test$Faliu)) %>%
+  bind_rows(tibble(modelo = "Ridge",
+                   probabilidade = Faliu_df$Faliu_ridge,
+                   classe = test$Faliu)) %>%
+  bind_rows(tibble(modelo = "Elastic-NET",
+                   probabilidade = Faliu_df$Faliu_elastic,
+                   classe = test$Faliu)) %>%
+  group_by(modelo) %>% 
+  autoplot(roc_curve(classe, probabilidade, event_level = "second"))
+
+
+```
